@@ -5,8 +5,10 @@
 const std = @import("std");
 
 const vec3 = @import("vec3.zig");
+const raylib = @import("ray.zig");
 const Color = vec3.Color;
 const Vec3 = vec3.Vec3;
+const Ray = raylib.Ray;
 
 fn createNormalizedPosition(x: i32, y: i32, width: i32, height: i32, z: f32) Vec3 {
     // is there a nicer / simpler way for this?
@@ -15,6 +17,13 @@ fn createNormalizedPosition(x: i32, y: i32, width: i32, height: i32, z: f32) Vec
     const zf = z;
 
     return .{ .x = xf, .y = yf, .z = zf };
+}
+
+fn skyColor(r: Ray) Color {
+    const unit_direction = vec3.normalize(r.direction);
+    const t = 0.5 * (unit_direction.y + 1.0);
+    const topColor = Color.new(1, 1, 1);
+    return vec3.lerp(Color.new(0.5, 0.7, 1), Color.new(1, 1, 1), t);
 }
 
 fn writePpmColor(out: anytype, color: Color) !void {
@@ -29,16 +38,18 @@ pub fn main() anyerror!void {
     const stdout = std.io.getStdOut().writer();
 
     // first step: output a ppm:
+    const aspect_ratio: f32 = 16.0 / 9.0;
     const image_width: i32 = 256;
-    const image_height: i32 = 256;
+    const image_height: i32 = 256 / aspect_ratio;
 
-    var p0: Vec3 = .{ .x = 1, .y = 2, .z = 3 };
+    const viewport_height: f32 = 2.0;
+    const viewport_width: f32 = aspect_ratio * viewport_height;
+    const focal_length: f32 = 1;
 
-    const l: f32 = p0.length();
-
-    try stdout.print("l={}\n", .{l});
-
-    //unreachable;
+    const origin = Vec3.new(0, 0, 0);
+    const horizontal = Vec3.new(viewport_width, 0, 0);
+    const vertical = Vec3.new(0, viewport_height, 0);
+    const lower_left_corner = Vec3.new(origin.x - horizontal.x / 2 - vertical.x / 2, origin.y - horizontal.y / 2 - vertical.y / 2, origin.z - focal_length);
 
     const ppm_file = try std.fs.cwd().createFile("test.ppm", .{});
     defer ppm_file.close();
@@ -53,7 +64,12 @@ pub fn main() anyerror!void {
         try stdout.print("\rScanlines remaining: {}", .{y});
         var x: i32 = 0;
         while (x < image_width) {
-            const pixel_color = createNormalizedPosition(x, y, image_width, image_height, 0.25);
+            const u = @intToFloat(f32, x) / @intToFloat(f32, image_width - 1);
+            const v = @intToFloat(f32, y) / @intToFloat(f32, image_height - 1);
+
+            const ray = Ray.new(origin, Vec3.new(lower_left_corner.x + u * horizontal.x + v * vertical.x - origin.x, lower_left_corner.y + u * horizontal.y + v * vertical.y - origin.y, lower_left_corner.z + u * horizontal.z + v * vertical.z - origin.z));
+
+            const pixel_color = skyColor(ray);
             try writePpmColor(ppm_writer, pixel_color);
 
             x += 1;
