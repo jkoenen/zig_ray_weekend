@@ -27,5 +27,13 @@ pub fn lerp(a: Vec3, b: Vec3, t: f32) Vec3 {
     return Vec3.new(t * a.x + (1 - t) * b.x, t * a.y + (1 - t) * b.y, t * a.z + (1 - t) * b.z);
 }
 
+pub fn sub(a: Vec3, b: Vec3) Vec3 {
+    return Vec3.new(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+pub fn dot(a: Vec3, b: Vec3) f32 {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
 pub const Point = Vec3;
 pub const Color = Vec3;

@@ -8,6 +8,7 @@ const vec3 = @import("vec3.zig");
 const raylib = @import("ray.zig");
 const Color = vec3.Color;
 const Vec3 = vec3.Vec3;
+const Point = vec3.Point;
 const Ray = raylib.Ray;
 
 fn createNormalizedPosition(x: i32, y: i32, width: i32, height: i32, z: f32) Vec3 {
@@ -24,6 +25,22 @@ fn skyColor(r: Ray) Color {
     const t = 0.5 * (unit_direction.y + 1.0);
     const topColor = Color.new(1, 1, 1);
     return vec3.lerp(Color.new(0.5, 0.7, 1), Color.new(1, 1, 1), t);
+}
+
+fn hitSphere(center: Point, radius: f32, ray: Ray) bool {
+    const oc = vec3.sub(ray.origin, center);
+    const a = vec3.dot(ray.direction, ray.direction);
+    const b = 2 * vec3.dot(oc, ray.direction);
+    const c = vec3.dot(oc, oc) - radius * radius;
+    const discriminant = b * b - 4 * a * c;
+    return discriminant > 0;
+}
+
+fn rayColor(r: Ray) Color {
+    if (hitSphere(Point.new(0, 0, -1), 0.5, r)) {
+        return Color.new(1, 0, 0);
+    }
+    return skyColor(r);
 }
 
 fn writePpmColor(out: anytype, color: Color) !void {
@@ -69,7 +86,7 @@ pub fn main() anyerror!void {
 
             const ray = Ray.new(origin, Vec3.new(lower_left_corner.x + u * horizontal.x + v * vertical.x - origin.x, lower_left_corner.y + u * horizontal.y + v * vertical.y - origin.y, lower_left_corner.z + u * horizontal.z + v * vertical.z - origin.z));
 
-            const pixel_color = skyColor(ray);
+            const pixel_color = rayColor(ray);
             try writePpmColor(ppm_writer, pixel_color);
 
             x += 1;
