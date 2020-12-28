@@ -16,8 +16,21 @@ pub const Vector3 = struct {
     pub fn length(self: *const Vector3) f32 {
         return math.sqrt(self.length_squared());
     }
+
     pub fn length_squared(self: *const Vector3) f32 {
         return self.x * self.x + self.y * self.y + self.z * self.z;
+    }
+
+    pub fn add(self: *Vector3, other: Vector3) void {
+        self.x += other.x;
+        self.y += other.y;
+        self.z += other.z;
+    }
+
+    pub fn scale(self: *Vector3, s: f32) void {
+        self.x *= s;
+        self.y *= s;
+        self.z *= s;
     }
 };
 

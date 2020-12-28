@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const math = std.math;
+const rand = std.rand;
 
 const ray_math = @import("math.zig");
 usingnamespace ray_math;
@@ -131,6 +132,37 @@ fn rayColor(hit_object: *const HitObjectList, r: Ray) Color {
     return skyColor(r);
 }
 
+const Camera = struct {
+    origin: Point3,
+    lower_left_corner: Point3,
+    horizontal: Vector3,
+    vertical: Vector3,
+
+    pub fn new(width: i32, height: i32) Camera {
+        const aspect_ratio: f32 = @intToFloat(f32, width) / @intToFloat(f32, height);
+
+        const viewport_height: f32 = 2.0;
+        const viewport_width: f32 = aspect_ratio * viewport_height;
+        const focal_length: f32 = 1;
+
+        const origin = Vector3.new(0, 0, 0);
+        const horizontal = Vector3.new(viewport_width, 0, 0);
+        const vertical = Vector3.new(0, viewport_height, 0);
+        const lower_left_corner = Vector3.new(origin.x - horizontal.x / 2 - vertical.x / 2, origin.y - horizontal.y / 2 - vertical.y / 2, origin.z - focal_length);
+
+        return Camera{
+            .origin = origin,
+            .lower_left_corner = lower_left_corner,
+            .horizontal = horizontal,
+            .vertical = vertical,
+        };
+    }
+
+    pub fn getRay(self: *const Camera, u: f32, v: f32) Ray {
+        return Ray.new(self.origin, Vector3.new(self.lower_left_corner.x + u * self.horizontal.x + v * self.vertical.x - self.origin.x, self.lower_left_corner.y + u * self.horizontal.y + v * self.vertical.y - self.origin.y, self.lower_left_corner.z + u * self.horizontal.z + v * self.vertical.z - self.origin.z));
+    }
+};
+
 fn writePpmColor(out: anytype, color: Color) !void {
     const ir = @floatToInt(i32, 255.0 * color.x + 0.5);
     const ig = @floatToInt(i32, 255.0 * color.y + 0.5);
@@ -141,11 +173,18 @@ fn writePpmColor(out: anytype, color: Color) !void {
 
 pub fn main() anyerror!void {
     const stdout = std.io.getStdOut().writer();
+
+    // allocator:
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = &gpa.allocator;
 
-    const blub = try allocator.create(HitSphere);
+    // init random numbers:
+    const time_now = std.time.timestamp();
+    const seed_i64 = if (time_now >= 0) time_now else -time_now;
+    const seed_u64 = @intCast(u64, seed_i64);
+    var rng = rand.DefaultPrng.init(seed_u64);
 
+    // create the scene/world:
     var world = HitObjectList.new(allocator);
     defer world.deinit();
 
@@ -154,19 +193,16 @@ pub fn main() anyerror!void {
 
     const hit_object = &world;
 
-    const aspect_ratio: f32 = 16.0 / 9.0;
-    const image_width: i32 = 256;
-    const image_height: i32 = 256 / aspect_ratio;
+    const resolution_scale: i32 = 5;
+    const samples_per_pixel: i32 = 100;
 
-    const viewport_height: f32 = 2.0;
-    const viewport_width: f32 = aspect_ratio * viewport_height;
-    const focal_length: f32 = 1;
+    const image_width = 1280 / resolution_scale;
+    const image_height = 720 / resolution_scale;
 
-    const origin = Vector3.new(0, 0, 0);
-    const horizontal = Vector3.new(viewport_width, 0, 0);
-    const vertical = Vector3.new(0, viewport_height, 0);
-    const lower_left_corner = Vector3.new(origin.x - horizontal.x / 2 - vertical.x / 2, origin.y - horizontal.y / 2 - vertical.y / 2, origin.z - focal_length);
+    // camera settings:
+    const camera = Camera.new(image_width, image_height);
 
+    // open the output file:
     const ppm_file = try std.fs.cwd().createFile("test.ppm", .{});
     defer ppm_file.close();
 
@@ -180,12 +216,21 @@ pub fn main() anyerror!void {
         try stdout.print("\rScanlines remaining: {}", .{y});
         var x: i32 = 0;
         while (x < image_width) {
-            const u = @intToFloat(f32, x) / @intToFloat(f32, image_width - 1);
-            const v = @intToFloat(f32, y) / @intToFloat(f32, image_height - 1);
+            var pixel_color = Color{ .x = 0, .y = 0, .z = 0 };
 
-            const r = Ray.new(origin, Vector3.new(lower_left_corner.x + u * horizontal.x + v * vertical.x - origin.x, lower_left_corner.y + u * horizontal.y + v * vertical.y - origin.y, lower_left_corner.z + u * horizontal.z + v * vertical.z - origin.z));
+            var sample_index: i32 = 0;
+            while (sample_index < samples_per_pixel) {
+                const u = (@intToFloat(f32, x) + rng.random.float(f32)) / @intToFloat(f32, image_width - 1);
+                const v = (@intToFloat(f32, y) + rng.random.float(f32)) / @intToFloat(f32, image_height - 1);
 
-            const pixel_color = rayColor(hit_object, r);
+                const ray = camera.getRay(u, v);
+
+                const sample_color = rayColor(hit_object, ray);
+
+                pixel_color.add(sample_color);
+                sample_index += 1;
+            }
+            pixel_color.scale(1.0 / @intToFloat(f32, samples_per_pixel));
             try writePpmColor(ppm_writer, pixel_color);
 
             x += 1;
