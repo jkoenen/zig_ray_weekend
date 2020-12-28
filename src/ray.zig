@@ -12,7 +12,7 @@ pub const Ray = struct {
         return Ray{ .origin = origin, .direction = direction };
     }
 
-    pub fn at(self: *Ray, t: f32) f32 {
-        return add(self.origin, scale(self.direction, t));
+    pub fn at(self: *const Ray, t: f32) Vec3 {
+        return vec3.add(self.origin, vec3.scale(self.direction, t));
     }
 };

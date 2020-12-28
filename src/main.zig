@@ -3,6 +3,7 @@
 // lets test zig..
 
 const std = @import("std");
+const math = std.math;
 
 const vec3 = @import("vec3.zig");
 const raylib = @import("ray.zig");
@@ -27,18 +28,26 @@ fn skyColor(r: Ray) Color {
     return vec3.lerp(Color.new(0.5, 0.7, 1), Color.new(1, 1, 1), t);
 }
 
-fn hitSphere(center: Point, radius: f32, ray: Ray) bool {
+fn hitSphere(center: Point, radius: f32, ray: Ray) f32 {
     const oc = vec3.sub(ray.origin, center);
     const a = vec3.dot(ray.direction, ray.direction);
     const b = 2 * vec3.dot(oc, ray.direction);
     const c = vec3.dot(oc, oc) - radius * radius;
     const discriminant = b * b - 4 * a * c;
-    return discriminant > 0;
+    if (discriminant < 0) {
+        return -1;
+    } else {
+        return (-b - math.sqrt(discriminant)) / (2 * a);
+    }
 }
 
 fn rayColor(r: Ray) Color {
-    if (hitSphere(Point.new(0, 0, -1), 0.5, r)) {
-        return Color.new(1, 0, 0);
+    const sphere_center = Point.new(0, 0, -1);
+    const sphere_radius = 0.5;
+    const t = hitSphere(sphere_center, sphere_radius, r);
+    if (t > 0) {
+        const normal = vec3.normalize(vec3.sub(r.at(t), sphere_center));
+        return Color.new(0.5 * (normal.x + 1), 0.5 * (normal.y + 1), 0.5 * (normal.z + 1));
     }
     return skyColor(r);
 }

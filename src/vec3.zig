@@ -27,8 +27,16 @@ pub fn lerp(a: Vec3, b: Vec3, t: f32) Vec3 {
     return Vec3.new(t * a.x + (1 - t) * b.x, t * a.y + (1 - t) * b.y, t * a.z + (1 - t) * b.z);
 }
 
+pub fn add(a: Vec3, b: Vec3) Vec3 {
+    return Vec3.new(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
 pub fn sub(a: Vec3, b: Vec3) Vec3 {
     return Vec3.new(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+pub fn scale(a: Vec3, b: f32) Vec3 {
+    return Vec3.new(a.x * b, a.y * b, a.z * b);
 }
 
 pub fn dot(a: Vec3, b: Vec3) f32 {
