@@ -5,6 +5,25 @@
 const std = @import("std");
 
 const vec3 = @import("vec3.zig");
+const Color = vec3.Color;
+const Vec3 = vec3.Vec3;
+
+fn createNormalizedPosition(x: i32, y: i32, width: i32, height: i32, z: f32) Vec3 {
+    // is there a nicer / simpler way for this?
+    const xf = @intToFloat(f32, x) / @intToFloat(f32, width - 1);
+    const yf = @intToFloat(f32, y) / @intToFloat(f32, height - 1);
+    const zf = z;
+
+    return .{ .x = xf, .y = yf, .z = zf };
+}
+
+fn writePpmColor(out: anytype, color: Color) !void {
+    const ir = @floatToInt(i32, 255.0 * color.x + 0.5);
+    const ig = @floatToInt(i32, 255.0 * color.y + 0.5);
+    const ib = @floatToInt(i32, 255.0 * color.z + 0.5);
+
+    try std.fmt.format(out, "{} {} {}\n", .{ ir, ig, ib });
+}
 
 pub fn main() anyerror!void {
     const stdout = std.io.getStdOut().writer();
@@ -13,7 +32,7 @@ pub fn main() anyerror!void {
     const image_width: i32 = 256;
     const image_height: i32 = 256;
 
-    var p0: vec3.Vec3 = .{ .x = 1, .y = 2, .z = 3 };
+    var p0: Vec3 = .{ .x = 1, .y = 2, .z = 3 };
 
     const l: f32 = p0.length();
 
@@ -34,16 +53,8 @@ pub fn main() anyerror!void {
         try stdout.print("\rScanlines remaining: {}", .{y});
         var x: i32 = 0;
         while (x < image_width) {
-            // is there a nicer / simpler way for this?
-            const r = @intToFloat(f32, x) / @intToFloat(f32, image_width - 1);
-            const g = @intToFloat(f32, y) / @intToFloat(f32, image_height - 1);
-            const b: f32 = 0.25;
-
-            const ir = @floatToInt(i32, 255.0 * r + 0.5);
-            const ig = @floatToInt(i32, 255.0 * g + 0.5);
-            const ib = @floatToInt(i32, 255.0 * b + 0.5);
-
-            try ppm_writer.print("{} {} {}\n", .{ ir, ig, ib });
+            const pixel_color = createNormalizedPosition(x, y, image_width, image_height, 0.25);
+            try writePpmColor(ppm_writer, pixel_color);
 
             x += 1;
         }

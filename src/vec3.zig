@@ -2,6 +2,8 @@ const std = @import("std");
 const math = std.math;
 
 pub const Vec3 = struct {
+    const SelfType = @This();
+
     x: f32,
     y: f32,
     z: f32,
@@ -14,5 +16,5 @@ pub const Vec3 = struct {
     }
 };
 
-const Point = Vec3;
-const Color = Vec3;
+pub const Point = Vec3;
+pub const Color = Vec3;
