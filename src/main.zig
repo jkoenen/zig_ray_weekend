@@ -9,6 +9,7 @@
 const std = @import("std");
 const math = std.math;
 const rand = std.rand;
+const Random = rand.Random;
 
 const ray_math = @import("math.zig");
 usingnamespace ray_math;
@@ -123,15 +124,6 @@ const HitObjectList = struct {
     }
 };
 
-fn rayColor(hit_object: *const HitObjectList, r: Ray) Color {
-    var hit_info: HitInfo = undefined;
-    if (hit_object.intersect(r, 0, infinity, &hit_info)) {
-        return Color.new(0.5 * (hit_info.normal.x + 1), 0.5 * (hit_info.normal.y + 1), 0.5 * (hit_info.normal.z + 1));
-    }
-
-    return skyColor(r);
-}
-
 const Camera = struct {
     origin: Point3,
     lower_left_corner: Point3,
@@ -163,10 +155,58 @@ const Camera = struct {
     }
 };
 
+fn clamp(x: i32, min: i32, max: i32) i32 {
+    if (x < min) {
+        return min;
+    } else if (x > max) {
+        return max;
+    } else {
+        return x;
+    }
+}
+
+fn random_in_range(random: *Random, min: f32, max: f32) f32 {
+    return random.float(f32) * (max - min) + min;
+}
+
+fn random_in_cube(random: *Random, min: f32, max: f32) Vector3 {
+    return Vector3{ .x = random_in_range(random, min, max), .y = random_in_range(random, min, max), .z = random_in_range(random, min, max) };
+}
+
+fn random_in_unit_sphere(random: *Random) Vector3 {
+    while (true) {
+        const p = random_in_cube(random, -1, 1);
+
+        if (p.length_squared() > 1) {
+            continue;
+        }
+
+        return p;
+    }
+}
+
+var g_rng: *Random = undefined;
+
+fn rayColor(hit_object: *const HitObjectList, r: Ray, depth: i32) Color {
+    if (depth <= 0) {
+        return Color{ .x = 0, .y = 0, .z = 0 };
+    }
+
+    var hit_info: HitInfo = undefined;
+    if (hit_object.intersect(r, 0, infinity, &hit_info)) {
+        const target = add(add(hit_info.position, hit_info.normal), random_in_unit_sphere(g_rng));
+        const incoming_ray = Ray.new(hit_info.position, sub(target, hit_info.position));
+        const incoming_color = rayColor(hit_object, incoming_ray, depth - 1);
+        return scale(incoming_color, 0.5);
+    }
+
+    return skyColor(r);
+}
+
 fn writePpmColor(out: anytype, color: Color) !void {
-    const ir = @floatToInt(i32, 255.0 * color.x + 0.5);
-    const ig = @floatToInt(i32, 255.0 * color.y + 0.5);
-    const ib = @floatToInt(i32, 255.0 * color.z + 0.5);
+    const ir = clamp(@floatToInt(i32, 255.0 * color.x + 0.5), 0, 255);
+    const ig = clamp(@floatToInt(i32, 255.0 * color.y + 0.5), 0, 255);
+    const ib = clamp(@floatToInt(i32, 255.0 * color.z + 0.5), 0, 255);
 
     try std.fmt.format(out, "{} {} {}\n", .{ ir, ig, ib });
 }
@@ -183,6 +223,7 @@ pub fn main() anyerror!void {
     const seed_i64 = if (time_now >= 0) time_now else -time_now;
     const seed_u64 = @intCast(u64, seed_i64);
     var rng = rand.DefaultPrng.init(seed_u64);
+    g_rng = &rng.random;
 
     // create the scene/world:
     var world = HitObjectList.new(allocator);
@@ -193,8 +234,9 @@ pub fn main() anyerror!void {
 
     const hit_object = &world;
 
-    const resolution_scale: i32 = 5;
+    const resolution_scale: i32 = 1;
     const samples_per_pixel: i32 = 100;
+    const max_depth: i32 = 50;
 
     const image_width = 1280 / resolution_scale;
     const image_height = 720 / resolution_scale;
@@ -225,7 +267,7 @@ pub fn main() anyerror!void {
 
                 const ray = camera.getRay(u, v);
 
-                const sample_color = rayColor(hit_object, ray);
+                const sample_color = rayColor(hit_object, ray, max_depth);
 
                 pixel_color.add(sample_color);
                 sample_index += 1;
