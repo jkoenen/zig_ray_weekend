@@ -14,7 +14,7 @@ const HitInfo = struct {
     }
 };
 
-const Material = struct {
+pub const Material = struct {
     scatterFn: fn (material: *const Material, ray: Ray, hit_info: HitInfo, attenuation: *Color, scattered_ray: *Ray) bool,
 
     pub fn scatter(self: *const Material, ray: Ray, hit_info: HitInfo, attenuation: *Color, scattered_ray: *Ray) bool {

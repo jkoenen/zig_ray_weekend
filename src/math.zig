@@ -27,6 +27,17 @@ pub const Vector3 = struct {
         return Vector3{ .x = x, .y = y, .z = z };
     }
 
+    pub fn random() Vector3 {
+        return Vector3.new( random_f32(), random_f32(), random_f32() );
+    }
+
+    pub fn random_in_range(min: f32, max: f32) Vector3 {
+        return Vector3.new( 
+            random_f32_in_range( min, max ), 
+            random_f32_in_range( min, max ),
+            random_f32_in_range( min, max ) );
+    }
+
     pub fn length(self: *const Vector3) f32 {
         return math.sqrt(self.length_squared());
     }
@@ -132,12 +143,12 @@ pub fn random_f32() f32 {
     return g_rng.float(f32);
 }
 
-pub fn random_in_range(min: f32, max: f32) f32 {
+pub fn random_f32_in_range(min: f32, max: f32) f32 {
     return random_f32() * (max - min) + min;
 }
 
 pub fn random_in_cube(min: f32, max: f32) Vector3 {
-    return Vector3{ .x = random_in_range(min, max), .y = random_in_range(min, max), .z = random_in_range(min, max) };
+    return Vector3{ .x = random_f32_in_range(min, max), .y = random_f32_in_range(min, max), .z = random_f32_in_range(min, max) };
 }
 
 pub fn random_in_unit_sphere() Vector3 {
@@ -163,8 +174,10 @@ pub fn random_in_hemisphere(normal: Vector3) Vector3 {
 
 pub fn random_in_unit_disk() Vector3 {
     while (true) {
-        const p = Vector3.new(random_in_range(-1, 1), random_in_range(-1, 1), 0);
+        const p = Vector3.new(random_f32_in_range(-1, 1), random_f32_in_range(-1, 1), 0);
         if (p.length_squared() >= 1) continue;
         return p;
     }
 }
+
+

@@ -2,14 +2,44 @@
 // https://raytracing.github.io/books/RayTracingInOneWeekend.html#overview
 // lets test zig..
 
-// open questions:
-// - how to switch between debug/release build configs?
-//      -> debug is default, -O ReleaseFast switches to optimized build
-
 const std = @import("std");
 
 usingnamespace @import("math.zig");
 usingnamespace @import("ray.zig");
+
+fn fill_random_scene(scene: *RayScene) void {
+    const ground_material = scene.addLambertMaterial( Color.new( 0.5, 0.5, 0.5 ) );
+    scene.addSphere( Point3.new( 0, -1000, 0 ), 1000, ground_material );
+
+    var a: i32 = -11;
+    while( a < 11 ) : ( a += 1 ) {
+        var b: i32 = -11;
+        while( b < 11 ) : ( b += 1 ) {
+            const center = Point3.new( @intToFloat(f32, a) + 0.9 * random_f32(), 0.2, @intToFloat(f32, b) + 0.9 * random_f32() );
+
+            if( sub( center, Point3.new( 4, 0.2, 0 ) ).length() > 0.9 ) {
+                const material_selector = random_f32();
+
+                var material: *const Material = undefined;
+                if( material_selector < 0.8 ) { 
+                    const albedo = mul( Color.random(), Color.random() );                    
+                    material = scene.addLambertMaterial( albedo );
+                } else if( material_selector < 0.95 ) { 
+                    const color = Color.random_in_range(0.5, 1);                    
+                    const fuzz = random_f32_in_range( 0, 0.5 );
+                    material = scene.addMetalMaterial( color, fuzz );
+                } else {
+                    material = scene.addDielectricMaterial( 1.5 );
+                }
+                scene.addSphere( center, 0.2, material );
+            }
+        }
+    }
+
+    scene.addSphere( Point3.new( 0, 1, 0 ), 1.0, scene.addDielectricMaterial( 1.5 ) );
+    scene.addSphere( Point3.new( -4, 1, 0 ), 1.0, scene.addLambertMaterial( Color.new( 0.4, 0.2, 0.1 ) ) );
+    scene.addSphere( Point3.new( 4, 1, 0 ), 1, scene.addMetalMaterial( Color.new( 0.7, 0.6, 0.5 ), 0.0 ) );
+}
 
 fn writePpmColor(out: anytype, color: Color) !void {
     const g_r = std.math.sqrt(color.x);
@@ -43,12 +73,12 @@ pub fn main() anyerror!void {
     random_init(&rng.random);
 
     // create the scene/scene:
-    const sphere_capacity = 128;
-    const material_capacity = 128;
+    const sphere_capacity = 1024;
+    const material_capacity = 1024;
     var scene = try RayScene.init(allocator, sphere_capacity, material_capacity);
     defer scene.deinit();
 
-    const sceneId = 3;
+    const sceneId = 4;
     if (sceneId == 0) {
         const matGreen = scene.addLambertMaterial(Color.new(0.2, 0.6, 0.1));
         const matRed = scene.addLambertMaterial(Color.new(0.7, 0.2, 0.1));
@@ -87,10 +117,12 @@ pub fn main() anyerror!void {
         scene.addSphere(Point3.new(-1.0, 0.0, -1.0), 0.5, material_left);
         scene.addSphere(Point3.new(-1.0, 0.0, -1.0), -0.45, material_left);
         scene.addSphere(Point3.new(1.0, 0.0, -1.0), 0.5, material_right);
+    } else if( sceneId == 4 ) {
+        fill_random_scene( &scene );
     }
 
-    const resolution_scale: i32 = 4;
-    const samples_per_pixel: i32 = 10;
+    const resolution_scale: i32 = 1;
+    const samples_per_pixel: i32 = 500;
     const max_depth: i32 = 50;
 
     const image_width = 1280 / resolution_scale;
@@ -98,11 +130,11 @@ pub fn main() anyerror!void {
     const aspect_ratio = @intToFloat(f32, image_width) / @intToFloat(f32, image_height);
 
     // camera settings:
-    const look_from = Point3.new(3, 3, 2);
-    const look_at = Point3.new(0, 0, -1);
+    const look_from = Point3.new(13, 2, 3);
+    const look_at = Point3.new(0, 0, 0);
     const up = Vector3.new(0, 1, 0);
-    const distance_to_focus = sub(look_from, look_at).length();
-    const aperture = 2.0;
+    const distance_to_focus = 10.0;
+    const aperture = 0.1;
     const camera = Camera.new(look_from, look_at, up, 20.0, aspect_ratio, aperture, distance_to_focus);
 
     // open the output file:
@@ -113,32 +145,26 @@ pub fn main() anyerror!void {
 
     try ppm_writer.print("P3\n{} {}\n255\n", .{ image_width, image_height });
 
-    // hmm.. how do for-loops work in zig? -> using while loops for now ;)
     var y: i32 = image_height - 1;
-    while (y >= 0) {
+    while (y >= 0) : ( y -= 1 ) {
         try stdout.print("\rScanlines remaining: {} ", .{y});
         var x: i32 = 0;
-        while (x < image_width) {
+        while (x < image_width) : ( x += 1 ) {
             var pixel_color = Color{ .x = 0, .y = 0, .z = 0 };
 
             var sample_index: i32 = 0;
-            while (sample_index < samples_per_pixel) {
+            while (sample_index < samples_per_pixel) : ( sample_index +=1 ) {
                 const u = (@intToFloat(f32, x) + rng.random.float(f32)) / @intToFloat(f32, image_width - 1);
                 const v = (@intToFloat(f32, y) + rng.random.float(f32)) / @intToFloat(f32, image_height - 1);
 
                 const ray = camera.getRay(u, v);
-
                 const sample_color = scene.rayColor( ray, max_depth);
 
                 pixel_color.add(sample_color);
-                sample_index += 1;
             }
             pixel_color.scale(1.0 / @intToFloat(f32, samples_per_pixel));
             try writePpmColor(ppm_writer, pixel_color);
-
-            x += 1;
         }
-        y -= 1;
     }
 
     try stdout.print("\nDone\n", .{});
