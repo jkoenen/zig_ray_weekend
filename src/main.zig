@@ -35,6 +35,7 @@ const HitInfo = struct {
     normal: Vector3,
     t: f32,
     front_face: bool,
+    material: *const Material,
 
     pub fn set_face_normal(self: *HitInfo, r: Ray, outward_normal: Vector3) void {
         self.front_face = dot(r.direction, outward_normal) < 0;
@@ -42,20 +43,76 @@ const HitInfo = struct {
     }
 };
 
+const Material = struct {
+    scatterFn: fn (material: *const Material, ray: Ray, hit_info: HitInfo, attenuation: *Color, scattered_ray: *Ray) bool,
+
+    pub fn scatter(self: *const Material, ray: Ray, hit_info: HitInfo, attenuation: *Color, scattered_ray: *Ray) bool {
+        return self.scatterFn(self, ray, hit_info, attenuation, scattered_ray);
+    }
+};
+
+const LambertMaterial = struct {
+    const Self = @This();
+    material: Material,
+    albedo: Color,
+
+    pub fn init(albedo: Color) Self {
+        return Self{
+            .material = Material{ .scatterFn = scatter },
+            .albedo = albedo,
+        };
+    }
+
+    fn scatter(material: *const Material, ray: Ray, hit_info: HitInfo, attenuation: *Color, scattered_ray: *Ray) bool {
+        const self = @fieldParentPtr(Self, "material", material);
+        var scatter_direction = random_in_hemisphere(hit_info.normal);
+
+        // catch degenerate scatter direction:
+        if (scatter_direction.is_near_zero()) {
+            scatter_direction = hit_info.normal;
+        }
+
+        scattered_ray.* = Ray.new(hit_info.position, scatter_direction);
+        attenuation.* = self.albedo;
+        return true;
+    }
+};
+
+const MetalMaterial = struct {
+    const Self = @This();
+    material: Material,
+    color: Color,
+    fuzz: f32,
+
+    pub fn init(color: Color, fuzz: f32) Self {
+        return Self{
+            .material = Material{ .scatterFn = scatter },
+            .color = color,
+            .fuzz = fuzz,
+        };
+    }
+
+    fn scatter(material: *const Material, ray: Ray, hit_info: HitInfo, attenuation: *Color, scattered_ray: *Ray) bool {
+        const self = @fieldParentPtr(Self, "material", material);
+        var reflected = reflect(normalize(ray.direction), hit_info.normal);
+        scattered_ray.* = Ray.new(hit_info.position, add(reflected, scale(random_in_unit_sphere(), self.fuzz)));
+        attenuation.* = self.color;
+        return true;
+    }
+};
+
 const HitSphere = struct {
     const SelfType = @This();
     position: Point3,
     radius: f32,
+    material: *const Material,
 
-    pub fn new(position: Point3, radius: f32) HitSphere {
-        var result: HitSphere = undefined;
-        result.init(position, radius);
-        return result;
-    }
-
-    pub fn init(self: *SelfType, position: Point3, radius: f32) void {
-        self.position = position;
-        self.radius = radius;
+    pub fn init(position: Point3, radius: f32, material: *const Material) SelfType {
+        return SelfType{
+            .position = position,
+            .radius = radius,
+            .material = material,
+        };
     }
 
     pub fn intersect(self: *const HitSphere, r: Ray, t_min: f32, t_max: f32, hit: *HitInfo) bool {
@@ -85,6 +142,7 @@ const HitSphere = struct {
         hit.t = t;
         hit.position = hit_position;
         hit.set_face_normal(r, outward_normal);
+        hit.material = self.material;
         return true;
     }
 };
@@ -101,9 +159,8 @@ const HitObjectList = struct {
         self.spheres.deinit();
     }
 
-    pub fn addSphere(self: *SelfType, position: Point3, radius: f32) !void {
-        const sphere = try self.spheres.addOne();
-        sphere.init(position, radius);
+    pub fn addSphere(self: *SelfType, position: Point3, radius: f32, material: *const Material) !void {
+        try self.spheres.append(HitSphere.init(position, radius, material));
     }
 
     pub fn intersect(self: HitObjectList, r: Ray, t_min: f32, t_max: f32, hit_info: *HitInfo) bool {
@@ -137,7 +194,8 @@ const Camera = struct {
         const viewport_width: f32 = aspect_ratio * viewport_height;
         const focal_length: f32 = 1;
 
-        const origin = Vector3.new(0, 0.5, 0.5);
+        //const origin = Vector3.new(0, 0.5, 0.5);
+        const origin = Vector3.new(0, 0.0, 0.0);
         const horizontal = Vector3.new(viewport_width, 0, 0);
         const vertical = Vector3.new(0, viewport_height, 0);
         const lower_left_corner = Vector3.new(origin.x - horizontal.x / 2 - vertical.x / 2, origin.y - horizontal.y / 2 - vertical.y / 2, origin.z - focal_length);
@@ -165,49 +223,22 @@ fn clamp(x: i32, min: i32, max: i32) i32 {
     }
 }
 
-fn random_in_range(random: *Random, min: f32, max: f32) f32 {
-    return random.float(f32) * (max - min) + min;
-}
-
-fn random_in_cube(random: *Random, min: f32, max: f32) Vector3 {
-    return Vector3{ .x = random_in_range(random, min, max), .y = random_in_range(random, min, max), .z = random_in_range(random, min, max) };
-}
-
-fn random_in_unit_sphere(random: *Random) Vector3 {
-    while (true) {
-        const p = random_in_cube(random, -1, 1);
-
-        if (p.length_squared() > 1) {
-            continue;
-        }
-
-        return p;
-    }
-}
-
-fn random_in_hemisphere(random: *Random, normal: Vector3) Vector3 {
-    const in_unit_sphere = random_in_unit_sphere(random);
-    if (dot(in_unit_sphere, normal) > 0.0) {
-        return in_unit_sphere;
-    } else {
-        return negate(in_unit_sphere);
-    }
-}
-
-var g_rng: *Random = undefined;
-
-fn rayColor(hit_object: *const HitObjectList, r: Ray, depth: i32) Color {
+fn rayColor(world: *const HitObjectList, r: Ray, depth: i32) Color {
     if (depth <= 0) {
         return Color{ .x = 0, .y = 0, .z = 0 };
     }
 
     var hit_info: HitInfo = undefined;
-    if (hit_object.intersect(r, 0.001, infinity, &hit_info)) {
-        //const target = add(add(hit_info.position, hit_info.normal), random_in_unit_sphere(g_rng));
-        const target = add(hit_info.position, random_in_hemisphere(g_rng, hit_info.normal));
-        const incoming_ray = Ray.new(hit_info.position, sub(target, hit_info.position));
-        const incoming_color = rayColor(hit_object, incoming_ray, depth - 1);
-        return scale(incoming_color, 0.5);
+    if (world.intersect(r, 0.001, infinity, &hit_info)) {
+        var scatter_ray: Ray = undefined;
+        var attenuation: Color = undefined;
+
+        if (hit_info.material.scatter(r, hit_info, &attenuation, &scatter_ray)) {
+            //const target = add(add(hit_info.position, hit_info.normal), random_in_unit_sphere(g_rng));
+            return mul(attenuation, rayColor(world, scatter_ray, depth - 1));
+        } else {
+            return Color{ .x = 0, .y = 0, .z = 0 };
+        }
     }
 
     return skyColor(r);
@@ -236,18 +267,32 @@ pub fn main() anyerror!void {
     const seed_i64 = if (time_now >= 0) time_now else -time_now;
     const seed_u64 = @intCast(u64, seed_i64);
     var rng = rand.DefaultPrng.init(seed_u64);
-    g_rng = &rng.random;
+    random_init(&rng.random);
 
     // create the scene/world:
     var world = HitObjectList.new(allocator);
     defer world.deinit();
 
-    try world.addSphere(Point3.new(0, 0, -1), 0.5);
-    try world.addSphere(Point3.new(0, 0.7, -1), 0.3);
-    try world.addSphere(Point3.new(0, 1.1, -1), 0.2);
-    try world.addSphere(Point3.new(0, -100.5, -1), 100);
+    if (false) {
+        const matGreen = LambertMaterial.init(Color.new(0.2, 0.6, 0.1));
+        const matRed = LambertMaterial.init(Color.new(0.7, 0.2, 0.1));
+        const matMetal = MetalMaterial.init(Color.new(0.7, 0.7, 0.7));
 
-    const hit_object = &world;
+        try world.addSphere(Point3.new(0, 0, -1), 0.5, &matRed.material);
+        try world.addSphere(Point3.new(0, 0.7, -1), 0.3, &matMetal.material);
+        try world.addSphere(Point3.new(0, 1.1, -1), 0.2, &matRed.material);
+        try world.addSphere(Point3.new(0, -100.5, -1), 100, &matGreen.material);
+    } else {
+        const material_ground = LambertMaterial.init(Color.new(0.8, 0.8, 0.0));
+        const material_center = LambertMaterial.init(Color.new(0.7, 0.3, 0.3));
+        const material_left = MetalMaterial.init(Color.new(0.8, 0.8, 0.8), 0.3);
+        const material_right = MetalMaterial.init(Color.new(0.8, 0.6, 0.2), 1.0);
+
+        try world.addSphere(Point3.new(0.0, -100.5, -1.0), 100.0, &material_ground.material);
+        try world.addSphere(Point3.new(0.0, 0.0, -1.0), 0.5, &material_center.material);
+        try world.addSphere(Point3.new(-1.0, 0.0, -1.0), 0.5, &material_left.material);
+        try world.addSphere(Point3.new(1.0, 0.0, -1.0), 0.5, &material_right.material);
+    }
 
     const resolution_scale: i32 = 4;
     const samples_per_pixel: i32 = 100;
@@ -282,7 +327,7 @@ pub fn main() anyerror!void {
 
                 const ray = camera.getRay(u, v);
 
-                const sample_color = rayColor(hit_object, ray, max_depth);
+                const sample_color = rayColor(&world, ray, max_depth);
 
                 pixel_color.add(sample_color);
                 sample_index += 1;
