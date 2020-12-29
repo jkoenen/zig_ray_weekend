@@ -216,24 +216,30 @@ const HitObjectList = struct {
     }
 };
 
+fn degree_to_radians(deg: f32) f32 {
+    return deg * pi / 180.0;
+}
+
 const Camera = struct {
     origin: Point3,
     lower_left_corner: Point3,
     horizontal: Vector3,
     vertical: Vector3,
 
-    pub fn new(width: i32, height: i32) Camera {
-        const aspect_ratio: f32 = @intToFloat(f32, width) / @intToFloat(f32, height);
-
-        const viewport_height: f32 = 2.0;
+    pub fn new(look_from: Point3, look_at: Point3, up: Vector3, vfov: f32, aspect_ratio: f32) Camera {
+        const theta = degree_to_radians(vfov);
+        const h = math.tan(theta / 2.0);
+        const viewport_height: f32 = 2.0 * h;
         const viewport_width: f32 = aspect_ratio * viewport_height;
-        const focal_length: f32 = 1;
 
-        //const origin = Vector3.new(0, 0.5, 0.5);
-        const origin = Vector3.new(0, 0.0, 0.0);
-        const horizontal = Vector3.new(viewport_width, 0, 0);
-        const vertical = Vector3.new(0, viewport_height, 0);
-        const lower_left_corner = Vector3.new(origin.x - horizontal.x / 2 - vertical.x / 2, origin.y - horizontal.y / 2 - vertical.y / 2, origin.z - focal_length);
+        const w = normalize(sub(look_from, look_at));
+        const u = normalize(cross(up, w));
+        const v = cross(w, u);
+
+        const origin = look_from;
+        const horizontal = scale(u, viewport_width);
+        const vertical = scale(v, viewport_height);
+        const lower_left_corner = sub(sub(sub(origin, scale(horizontal, 0.5)), scale(vertical, 0.5)), w);
 
         return Camera{
             .origin = origin,
@@ -243,8 +249,8 @@ const Camera = struct {
         };
     }
 
-    pub fn getRay(self: *const Camera, u: f32, v: f32) Ray {
-        return Ray.new(self.origin, Vector3.new(self.lower_left_corner.x + u * self.horizontal.x + v * self.vertical.x - self.origin.x, self.lower_left_corner.y + u * self.horizontal.y + v * self.vertical.y - self.origin.y, self.lower_left_corner.z + u * self.horizontal.z + v * self.vertical.z - self.origin.z));
+    pub fn getRay(self: *const Camera, s: f32, t: f32) Ray {
+        return Ray.new(self.origin, Vector3.new(self.lower_left_corner.x + s * self.horizontal.x + t * self.vertical.x - self.origin.x, self.lower_left_corner.y + s * self.horizontal.y + t * self.vertical.y - self.origin.y, self.lower_left_corner.z + s * self.horizontal.z + t * self.vertical.z - self.origin.z));
     }
 };
 
@@ -304,7 +310,9 @@ pub fn main() anyerror!void {
     var world = HitObjectList.new(allocator);
     defer world.deinit();
 
-    if (false) {
+    const scene = 3;
+
+    if (scene == 0) {
         const matGreen = LambertMaterial.init(Color.new(0.2, 0.6, 0.1));
         const matRed = LambertMaterial.init(Color.new(0.7, 0.2, 0.1));
         const matMetal = MetalMaterial.init(Color.new(0.7, 0.7, 0.7));
@@ -313,7 +321,7 @@ pub fn main() anyerror!void {
         try world.addSphere(Point3.new(0, 0.7, -1), 0.3, &matMetal.material);
         try world.addSphere(Point3.new(0, 1.1, -1), 0.2, &matRed.material);
         try world.addSphere(Point3.new(0, -100.5, -1), 100, &matGreen.material);
-    } else {
+    } else if (scene == 1) {
         const material_ground = LambertMaterial.init(Color.new(0.8, 0.8, 0.0));
         const material_center = LambertMaterial.init(Color.new(0.1, 0.2, 0.5));
         const material_left = DielectricMaterial.init(1.5);
@@ -324,6 +332,24 @@ pub fn main() anyerror!void {
         try world.addSphere(Point3.new(-1.0, 0.0, -1.0), 0.5, &material_left.material);
         try world.addSphere(Point3.new(-1.0, 0.0, -1.0), -0.4, &material_left.material);
         try world.addSphere(Point3.new(1.0, 0.0, -1.0), 0.5, &material_right.material);
+    } else if (scene == 2) {
+        const material_left = LambertMaterial.init(Color.new(0, 0, 1));
+        const material_right = LambertMaterial.init(Color.new(1, 0, 0));
+
+        const radius = math.cos(@as(f32, math.pi / 4.0));
+        try world.addSphere(Point3.new(-radius, 0.0, -1.0), radius, &material_left.material);
+        try world.addSphere(Point3.new(radius, 0.0, -1.0), radius, &material_right.material);
+    } else if (scene == 3) {
+        const material_ground = LambertMaterial.init(Color.new(0.8, 0.8, 0.0));
+        const material_center = LambertMaterial.init(Color.new(0.1, 0.2, 0.5));
+        const material_left = DielectricMaterial.init(1.5);
+        const material_right = MetalMaterial.init(Color.new(0.8, 0.6, 0.2), 0.0);
+
+        try world.addSphere(Point3.new(0.0, -100.5, -1.0), 100.0, &material_ground.material);
+        try world.addSphere(Point3.new(0.0, 0.0, -1.0), 0.5, &material_center.material);
+        try world.addSphere(Point3.new(-1.0, 0.0, -1.0), 0.5, &material_left.material);
+        try world.addSphere(Point3.new(-1.0, 0.0, -1.0), -0.45, &material_left.material);
+        try world.addSphere(Point3.new(1.0, 0.0, -1.0), 0.5, &material_right.material);
     }
 
     const resolution_scale: i32 = 2;
@@ -332,9 +358,10 @@ pub fn main() anyerror!void {
 
     const image_width = 1280 / resolution_scale;
     const image_height = 720 / resolution_scale;
+    const aspect_ratio = @intToFloat(f32, image_width) / @intToFloat(f32, image_height);
 
     // camera settings:
-    const camera = Camera.new(image_width, image_height);
+    const camera = Camera.new(Point3.new(-2, 2, 1), Point3.new(0, 0, -1), Point3.new(0, 1, 0), 20.0, aspect_ratio);
 
     // open the output file:
     const ppm_file = try std.fs.cwd().createFile("test.ppm", .{});

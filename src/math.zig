@@ -2,7 +2,7 @@ const std = @import("std");
 const math = std.math;
 
 pub const infinity = std.math.inf(f32);
-pub const pi = sd.math.pi;
+pub const pi = std.math.pi;
 
 pub fn clamp(x: i32, min: i32, max: i32) i32 {
     if (x < min) {
@@ -91,6 +91,14 @@ pub fn scale(a: Vector3, b: f32) Vector3 {
 
 pub fn dot(a: Vector3, b: Vector3) f32 {
     return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+pub fn cross(a: Vector3, b: Vector3) Vector3 {
+    return Vector3{
+        .x = a.y * b.z - a.z * b.y,
+        .y = a.z * b.x - a.x * b.z,
+        .z = a.x * b.y - a.y * b.x,
+    };
 }
 
 pub const Point3 = Vector3;
