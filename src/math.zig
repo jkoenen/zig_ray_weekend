@@ -156,3 +156,11 @@ pub fn random_in_hemisphere(normal: Vector3) Vector3 {
         return negate(in_unit_sphere);
     }
 }
+
+pub fn random_in_unit_disk() Vector3 {
+    while (true) {
+        const p = Vector3.new(random_in_range(-1, 1), random_in_range(-1, 1), 0);
+        if (p.length_squared() >= 1) continue;
+        return p;
+    }
+}

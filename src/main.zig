@@ -225,32 +225,45 @@ const Camera = struct {
     lower_left_corner: Point3,
     horizontal: Vector3,
     vertical: Vector3,
+    u: Vector3,
+    v: Vector3,
+    w: Vector3,
+    lens_radius: f32,
 
-    pub fn new(look_from: Point3, look_at: Point3, up: Vector3, vfov: f32, aspect_ratio: f32) Camera {
+    pub fn new(look_from: Point3, look_at: Point3, up: Vector3, vfov: f32, aspect_ratio: f32, aperture: f32, focus_distance: f32) Camera {
         const theta = degree_to_radians(vfov);
         const h = math.tan(theta / 2.0);
         const viewport_height: f32 = 2.0 * h;
-        const viewport_width: f32 = aspect_ratio * viewport_height;
+        const viewport_width = aspect_ratio * viewport_height;
 
         const w = normalize(sub(look_from, look_at));
         const u = normalize(cross(up, w));
         const v = cross(w, u);
 
         const origin = look_from;
-        const horizontal = scale(u, viewport_width);
-        const vertical = scale(v, viewport_height);
-        const lower_left_corner = sub(sub(sub(origin, scale(horizontal, 0.5)), scale(vertical, 0.5)), w);
+        const horizontal = scale(u, focus_distance * viewport_width);
+        const vertical = scale(v, focus_distance * viewport_height);
+        const lower_left_corner = sub(sub(sub(origin, scale(horizontal, 0.5)), scale(vertical, 0.5)), scale(w, focus_distance));
+
+        const lens_radius = aperture / 2.0;
 
         return Camera{
             .origin = origin,
             .lower_left_corner = lower_left_corner,
             .horizontal = horizontal,
             .vertical = vertical,
+            .u = u,
+            .v = v,
+            .w = w,
+            .lens_radius = lens_radius,
         };
     }
 
     pub fn getRay(self: *const Camera, s: f32, t: f32) Ray {
-        return Ray.new(self.origin, Vector3.new(self.lower_left_corner.x + s * self.horizontal.x + t * self.vertical.x - self.origin.x, self.lower_left_corner.y + s * self.horizontal.y + t * self.vertical.y - self.origin.y, self.lower_left_corner.z + s * self.horizontal.z + t * self.vertical.z - self.origin.z));
+        const rd = scale(random_in_unit_disk(), self.lens_radius);
+        const offset = add(scale(self.u, rd.x), scale(self.v, rd.y));
+        const position = add(self.origin, offset);
+        return Ray.new(position, Vector3.new(self.lower_left_corner.x + s * self.horizontal.x + t * self.vertical.x - position.x, self.lower_left_corner.y + s * self.horizontal.y + t * self.vertical.y - position.y, self.lower_left_corner.z + s * self.horizontal.z + t * self.vertical.z - position.z));
     }
 };
 
@@ -352,8 +365,8 @@ pub fn main() anyerror!void {
         try world.addSphere(Point3.new(1.0, 0.0, -1.0), 0.5, &material_right.material);
     }
 
-    const resolution_scale: i32 = 2;
-    const samples_per_pixel: i32 = 10;
+    const resolution_scale: i32 = 1;
+    const samples_per_pixel: i32 = 100;
     const max_depth: i32 = 50;
 
     const image_width = 1280 / resolution_scale;
@@ -361,7 +374,12 @@ pub fn main() anyerror!void {
     const aspect_ratio = @intToFloat(f32, image_width) / @intToFloat(f32, image_height);
 
     // camera settings:
-    const camera = Camera.new(Point3.new(-2, 2, 1), Point3.new(0, 0, -1), Point3.new(0, 1, 0), 20.0, aspect_ratio);
+    const look_from = Point3.new(3, 3, 2);
+    const look_at = Point3.new(0, 0, -1);
+    const up = Vector3.new(0, 1, 0);
+    const distance_to_focus = sub(look_from, look_at).length();
+    const aperture = 2.0;
+    const camera = Camera.new(look_from, look_at, up, 20.0, aspect_ratio, aperture, distance_to_focus);
 
     // open the output file:
     const ppm_file = try std.fs.cwd().createFile("test.ppm", .{});
