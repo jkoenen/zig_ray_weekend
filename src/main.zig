@@ -23,13 +23,6 @@ fn createNormalizedPosition(x: i32, y: i32, width: i32, height: i32, z: f32) Vec
     return .{ .x = xf, .y = yf, .z = zf };
 }
 
-fn skyColor(r: Ray) Color {
-    const unit_direction = normalize(r.direction);
-    const t = 0.5 * (unit_direction.y + 1.0);
-    const topColor = Color.new(1, 1, 1);
-    return lerp(Color.new(0.5, 0.7, 1), Color.new(1, 1, 1), t);
-}
-
 const HitInfo = struct {
     position: Point3,
     normal: Vector3,
@@ -37,8 +30,8 @@ const HitInfo = struct {
     front_face: bool,
     material: *const Material,
 
-    pub fn set_face_normal(self: *HitInfo, r: Ray, outward_normal: Vector3) void {
-        self.front_face = dot(r.direction, outward_normal) < 0;
+    pub fn set_face_normal(self: *HitInfo, ray: Ray, outward_normal: Vector3) void {
+        self.front_face = dot(ray.direction, outward_normal) < 0;
         self.normal = if (self.front_face) outward_normal else negate(outward_normal);
     }
 };
@@ -101,6 +94,48 @@ const MetalMaterial = struct {
     }
 };
 
+const DielectricMaterial = struct {
+    const Self = @This();
+    material: Material,
+    index_of_refraction: f32,
+
+    pub fn init(index_of_refraction: f32) Self {
+        return Self{
+            .material = Material{ .scatterFn = scatter },
+            .index_of_refraction = index_of_refraction,
+        };
+    }
+
+    fn scatter(material: *const Material, ray: Ray, hit_info: HitInfo, attenuation: *Color, scattered_ray: *Ray) bool {
+        const self = @fieldParentPtr(Self, "material", material);
+        attenuation.* = Color.new(1, 1, 1);
+
+        const refraction_ratio = if (hit_info.front_face) 1.0 / self.index_of_refraction else self.index_of_refraction;
+
+        const unit_direction = normalize(ray.direction);
+        const cos_theta = math.min(dot(negate(unit_direction), hit_info.normal), 1.0);
+        const sin_theta = math.sqrt(1.0 - cos_theta * cos_theta);
+
+        const cannot_refract = refraction_ratio * sin_theta > 1.0;
+        var direction: Vector3 = undefined;
+        if (cannot_refract or reflectance(cos_theta, refraction_ratio) > random_f32()) {
+            direction = reflect(unit_direction, hit_info.normal);
+        } else {
+            direction = refract(unit_direction, hit_info.normal, refraction_ratio);
+        }
+
+        scattered_ray.* = Ray.new(hit_info.position, direction);
+        return true;
+    }
+
+    fn reflectance(cosine: f32, ref_idx: f32) f32 {
+        // Use Schlick's approximation for reflectance.
+        var r0 = (1.0 - ref_idx) / (1.0 + ref_idx);
+        r0 = r0 * r0;
+        return r0 + (1.0 - r0) * math.pow(f32, (1.0 - cosine), 5.0);
+    }
+};
+
 const HitSphere = struct {
     const SelfType = @This();
     position: Point3,
@@ -115,19 +150,19 @@ const HitSphere = struct {
         };
     }
 
-    pub fn intersect(self: *const HitSphere, r: Ray, t_min: f32, t_max: f32, hit: *HitInfo) bool {
-        const oc = sub(r.origin, self.position);
-        const a = r.direction.length_squared();
-        const half_b = dot(oc, r.direction);
+    pub fn intersect(self: *const HitSphere, ray: Ray, t_min: f32, t_max: f32, hit: *HitInfo) bool {
+        const oc = sub(ray.origin, self.position);
+        const a = ray.direction.length_squared();
+        const half_b = dot(oc, ray.direction);
         const c = oc.length_squared() - self.radius * self.radius;
+
         const discriminant = half_b * half_b - a * c;
         if (discriminant < 0) {
             return false;
         }
-
         const sqrtd = math.sqrt(discriminant);
-        var t = (-half_b - sqrtd) / a;
 
+        var t = (-half_b - sqrtd) / a;
         if (t < t_min or t_max < t) {
             t = (-half_b + sqrtd) / a;
 
@@ -136,12 +171,12 @@ const HitSphere = struct {
             }
         }
 
-        const hit_position = r.at(t);
+        const hit_position = ray.at(t);
 
-        const outward_normal = normalize(sub(hit_position, self.position));
+        const outward_normal = scale(sub(hit_position, self.position), 1.0 / self.radius);
         hit.t = t;
         hit.position = hit_position;
-        hit.set_face_normal(r, outward_normal);
+        hit.set_face_normal(ray, outward_normal);
         hit.material = self.material;
         return true;
     }
@@ -163,12 +198,12 @@ const HitObjectList = struct {
         try self.spheres.append(HitSphere.init(position, radius, material));
     }
 
-    pub fn intersect(self: HitObjectList, r: Ray, t_min: f32, t_max: f32, hit_info: *HitInfo) bool {
+    pub fn intersect(self: HitObjectList, ray: Ray, t_min: f32, t_max: f32, hit_info: *HitInfo) bool {
         var hit_anything = false;
         var t_max_current = t_max;
         for (self.spheres.items) |object| {
             var object_hit: HitInfo = undefined;
-            if (object.intersect(r, t_min, t_max_current, &object_hit)) {
+            if (object.intersect(ray, t_min, t_max_current, &object_hit)) {
                 if (hit_anything) {
                     std.debug.assert(object_hit.t <= t_max_current);
                 }
@@ -213,35 +248,31 @@ const Camera = struct {
     }
 };
 
-fn clamp(x: i32, min: i32, max: i32) i32 {
-    if (x < min) {
-        return min;
-    } else if (x > max) {
-        return max;
-    } else {
-        return x;
-    }
+fn skyColor(ray: Ray) Color {
+    const unit_direction = normalize(ray.direction);
+    const t = 0.5 * (unit_direction.y + 1.0);
+    const topColor = Color.new(1, 1, 1);
+    return lerp(Color.new(0.5, 0.7, 1), Color.new(1, 1, 1), t);
 }
 
-fn rayColor(world: *const HitObjectList, r: Ray, depth: i32) Color {
+fn rayColor(world: *const HitObjectList, ray: Ray, depth: i32) Color {
     if (depth <= 0) {
         return Color{ .x = 0, .y = 0, .z = 0 };
     }
 
     var hit_info: HitInfo = undefined;
-    if (world.intersect(r, 0.001, infinity, &hit_info)) {
+    if (world.intersect(ray, 0.001, infinity, &hit_info)) {
         var scatter_ray: Ray = undefined;
         var attenuation: Color = undefined;
 
-        if (hit_info.material.scatter(r, hit_info, &attenuation, &scatter_ray)) {
-            //const target = add(add(hit_info.position, hit_info.normal), random_in_unit_sphere(g_rng));
+        if (hit_info.material.scatter(ray, hit_info, &attenuation, &scatter_ray)) {
             return mul(attenuation, rayColor(world, scatter_ray, depth - 1));
         } else {
             return Color{ .x = 0, .y = 0, .z = 0 };
         }
     }
 
-    return skyColor(r);
+    return skyColor(ray);
 }
 
 fn writePpmColor(out: anytype, color: Color) !void {
@@ -284,18 +315,19 @@ pub fn main() anyerror!void {
         try world.addSphere(Point3.new(0, -100.5, -1), 100, &matGreen.material);
     } else {
         const material_ground = LambertMaterial.init(Color.new(0.8, 0.8, 0.0));
-        const material_center = LambertMaterial.init(Color.new(0.7, 0.3, 0.3));
-        const material_left = MetalMaterial.init(Color.new(0.8, 0.8, 0.8), 0.3);
-        const material_right = MetalMaterial.init(Color.new(0.8, 0.6, 0.2), 1.0);
+        const material_center = LambertMaterial.init(Color.new(0.1, 0.2, 0.5));
+        const material_left = DielectricMaterial.init(1.5);
+        const material_right = MetalMaterial.init(Color.new(0.8, 0.6, 0.2), 0.0);
 
         try world.addSphere(Point3.new(0.0, -100.5, -1.0), 100.0, &material_ground.material);
         try world.addSphere(Point3.new(0.0, 0.0, -1.0), 0.5, &material_center.material);
         try world.addSphere(Point3.new(-1.0, 0.0, -1.0), 0.5, &material_left.material);
+        try world.addSphere(Point3.new(-1.0, 0.0, -1.0), -0.4, &material_left.material);
         try world.addSphere(Point3.new(1.0, 0.0, -1.0), 0.5, &material_right.material);
     }
 
-    const resolution_scale: i32 = 4;
-    const samples_per_pixel: i32 = 100;
+    const resolution_scale: i32 = 2;
+    const samples_per_pixel: i32 = 10;
     const max_depth: i32 = 50;
 
     const image_width = 1280 / resolution_scale;

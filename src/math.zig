@@ -4,6 +4,16 @@ const math = std.math;
 pub const infinity = std.math.inf(f32);
 pub const pi = sd.math.pi;
 
+pub fn clamp(x: i32, min: i32, max: i32) i32 {
+    if (x < min) {
+        return min;
+    } else if (x > max) {
+        return max;
+    } else {
+        return x;
+    }
+}
+
 pub const Vector3 = struct {
     x: f32,
     y: f32,
@@ -50,6 +60,13 @@ pub fn normalize(v: Vector3) Vector3 {
 
 pub fn reflect(v: Vector3, n: Vector3) Vector3 {
     return sub(v, scale(n, 2 * dot(v, n)));
+}
+
+pub fn refract(uv: Vector3, n: Vector3, etai_over_etat: f32) Vector3 {
+    const cos_theta = math.min(dot(negate(uv), n), 1);
+    const r_out_perp = scale(add(uv, scale(n, cos_theta)), etai_over_etat);
+    const r_out_parallel = scale(n, -math.sqrt(@fabs(1 - r_out_perp.length_squared())));
+    return add(r_out_perp, r_out_parallel);
 }
 
 pub fn lerp(a: Vector3, b: Vector3, t: f32) Vector3 {
@@ -99,8 +116,12 @@ pub fn random_init(rng: *std.rand.Random) void {
     g_rng = rng;
 }
 
+pub fn random_f32() f32 {
+    return g_rng.float(f32);
+}
+
 pub fn random_in_range(min: f32, max: f32) f32 {
-    return g_rng.float(f32) * (max - min) + min;
+    return random_f32() * (max - min) + min;
 }
 
 pub fn random_in_cube(min: f32, max: f32) Vector3 {
