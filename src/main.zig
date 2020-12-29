@@ -137,7 +137,7 @@ const Camera = struct {
         const viewport_width: f32 = aspect_ratio * viewport_height;
         const focal_length: f32 = 1;
 
-        const origin = Vector3.new(0, 0, 0);
+        const origin = Vector3.new(0, 0.5, 0.5);
         const horizontal = Vector3.new(viewport_width, 0, 0);
         const vertical = Vector3.new(0, viewport_height, 0);
         const lower_left_corner = Vector3.new(origin.x - horizontal.x / 2 - vertical.x / 2, origin.y - horizontal.y / 2 - vertical.y / 2, origin.z - focal_length);
@@ -185,6 +185,15 @@ fn random_in_unit_sphere(random: *Random) Vector3 {
     }
 }
 
+fn random_in_hemisphere(random: *Random, normal: Vector3) Vector3 {
+    const in_unit_sphere = random_in_unit_sphere(random);
+    if (dot(in_unit_sphere, normal) > 0.0) {
+        return in_unit_sphere;
+    } else {
+        return negate(in_unit_sphere);
+    }
+}
+
 var g_rng: *Random = undefined;
 
 fn rayColor(hit_object: *const HitObjectList, r: Ray, depth: i32) Color {
@@ -193,8 +202,9 @@ fn rayColor(hit_object: *const HitObjectList, r: Ray, depth: i32) Color {
     }
 
     var hit_info: HitInfo = undefined;
-    if (hit_object.intersect(r, 0, infinity, &hit_info)) {
-        const target = add(add(hit_info.position, hit_info.normal), random_in_unit_sphere(g_rng));
+    if (hit_object.intersect(r, 0.001, infinity, &hit_info)) {
+        //const target = add(add(hit_info.position, hit_info.normal), random_in_unit_sphere(g_rng));
+        const target = add(hit_info.position, random_in_hemisphere(g_rng, hit_info.normal));
         const incoming_ray = Ray.new(hit_info.position, sub(target, hit_info.position));
         const incoming_color = rayColor(hit_object, incoming_ray, depth - 1);
         return scale(incoming_color, 0.5);
@@ -204,9 +214,12 @@ fn rayColor(hit_object: *const HitObjectList, r: Ray, depth: i32) Color {
 }
 
 fn writePpmColor(out: anytype, color: Color) !void {
-    const ir = clamp(@floatToInt(i32, 255.0 * color.x + 0.5), 0, 255);
-    const ig = clamp(@floatToInt(i32, 255.0 * color.y + 0.5), 0, 255);
-    const ib = clamp(@floatToInt(i32, 255.0 * color.z + 0.5), 0, 255);
+    const g_r = math.sqrt(color.x);
+    const g_g = math.sqrt(color.y);
+    const g_b = math.sqrt(color.z);
+    const ir = clamp(@floatToInt(i32, 255.0 * g_r + 0.5), 0, 255);
+    const ig = clamp(@floatToInt(i32, 255.0 * g_g + 0.5), 0, 255);
+    const ib = clamp(@floatToInt(i32, 255.0 * g_b + 0.5), 0, 255);
 
     try std.fmt.format(out, "{} {} {}\n", .{ ir, ig, ib });
 }
@@ -230,11 +243,13 @@ pub fn main() anyerror!void {
     defer world.deinit();
 
     try world.addSphere(Point3.new(0, 0, -1), 0.5);
+    try world.addSphere(Point3.new(0, 0.7, -1), 0.3);
+    try world.addSphere(Point3.new(0, 1.1, -1), 0.2);
     try world.addSphere(Point3.new(0, -100.5, -1), 100);
 
     const hit_object = &world;
 
-    const resolution_scale: i32 = 1;
+    const resolution_scale: i32 = 4;
     const samples_per_pixel: i32 = 100;
     const max_depth: i32 = 50;
 
@@ -255,7 +270,7 @@ pub fn main() anyerror!void {
     // hmm.. how do for-loops work in zig? -> using while loops for now ;)
     var y: i32 = image_height - 1;
     while (y >= 0) {
-        try stdout.print("\rScanlines remaining: {}", .{y});
+        try stdout.print("\rScanlines remaining: {} ", .{y});
         var x: i32 = 0;
         while (x < image_width) {
             var pixel_color = Color{ .x = 0, .y = 0, .z = 0 };
