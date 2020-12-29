@@ -4,6 +4,10 @@ const math = std.math;
 pub const infinity = std.math.inf(f32);
 pub const pi = std.math.pi;
 
+pub fn degree_to_radians(deg: f32) f32 {
+    return deg * pi / 180.0;
+}
+
 pub fn clamp(x: i32, min: i32, max: i32) i32 {
     if (x < min) {
         return min;
